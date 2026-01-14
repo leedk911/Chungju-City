@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>충주맨의 항아리 등반 (지렛대 에디션)</title>
     <style>
         body {
@@ -12,6 +12,8 @@
             background-color: #87CEEB;
             font-family: 'Noto Sans KR', sans-serif;
             user-select: none;
+            touch-action: none; /* 터치 스크롤 방지 */
+            cursor: crosshair; /* 정밀 조작 커서 */
         }
         #gameCanvas {
             display: block;
@@ -26,6 +28,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
             text-align: right;
             border: 2px solid #333;
+            pointer-events: auto; /* UI는 클릭 가능 */
         }
         button {
             font-family: inherit;
@@ -83,6 +86,7 @@
             z-index: 100;
             white-space: nowrap;
             animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: none;
         }
         @keyframes popIn {
             from { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
@@ -120,7 +124,7 @@
         // === 게임 설정 ===
         let width, height;
         const gravity = 0.8; 
-        const airDrag = 0.99; // 공기 저항 약간 증가 (컨트롤 용이성)
+        const airDrag = 0.99; 
         
         let cameraX = 0;
         let cameraY = 0;
@@ -143,7 +147,7 @@
             headRadius: 30, 
             x: 0,
             y: 0,
-            friction: 0.9 // 망치 자체 마찰력 증가 (잘 안 미끄러짐)
+            friction: 0.9 
         };
 
         // 물리 재질
@@ -244,10 +248,31 @@
             if(player.y === 0) resetGame();
         }
         window.addEventListener('resize', resize);
+        
+        // 마우스 및 터치 이벤트 통합 처리
+        function updateInput(x, y) {
+            mouseX = x;
+            mouseY = y;
+        }
+
         window.addEventListener('mousemove', e => {
-            mouseX = e.clientX;
-            mouseY = e.clientY;
+            updateInput(e.clientX, e.clientY);
         });
+
+        // 터치 지원 추가
+        window.addEventListener('touchstart', e => {
+            if(e.touches.length > 0) {
+                updateInput(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, {passive: false});
+
+        window.addEventListener('touchmove', e => {
+            if(e.touches.length > 0) {
+                e.preventDefault(); // 스크롤 방지
+                updateInput(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, {passive: false});
+
 
         function resetGame() {
             isGameOver = false;
@@ -259,6 +284,10 @@
             cameraX = 0;
             cameraY = 0;
             player.prevAngle = 0;
+            
+            // 초기 마우스 위치를 플레이어 근처로 설정
+            mouseX = width / 2;
+            mouseY = height / 2;
         }
 
         function gameOver() {
@@ -347,8 +376,6 @@
 
                 if (velAlongNormal < 0 || hammerCol.overlap > 0) {
                     
-                    // 1. 수직 반발력 (Push Force)
-                    // 기존보다 약간 증가시켜 답답함 해소
                     const PUSH_POWER = 0.08; 
                     const SWING_POWER = 0.15; // 튕겨나가는 힘
 
@@ -357,37 +384,25 @@
                     
                     let totalNormalForce = pushForce + Math.max(0, swingForce);
                     
-                    // 수직 반발력 적용
-                    // X축 전진에 약간의 가산점 (1.2배)
                     player.vx += hammerCol.nx * totalNormalForce * 1.2;
                     player.vy += hammerCol.ny * totalNormalForce;
 
-                    // 2. [핵심] 지렛대 원리 / 접지력 (Traction Force)
-                    // 망치 머리가 땅에 닿았을 때, 회전하려는 힘을 이동하는 힘으로 변환
-                    
-                    // 접선 벡터 (Tangent Vector) - 충돌면에 수평인 방향
+                    // 지렛대 원리 / 접지력 (Traction Force)
                     let tx = -hammerCol.ny;
                     let ty = hammerCol.nx;
                     
-                    // 접선 방향의 망치 속도 성분
                     let vTan = hammerVelX * tx + hammerVelY * ty;
                     
-                    // 마찰 계수 (재질 + 망치)
                     let mat = materials[hammerCol.type] || materials[0];
                     let friction = hammer.friction * mat.friction;
                     
-                    // 지렛대 힘 계수 (이 값을 통해 앞으로 나아가는 힘 조절)
                     const LEVER_POWER = 0.45; 
-                    
-                    // 망치가 미끄러지려는 방향의 반대 방향으로 플레이어를 밈
-                    // vTan이 양수면 망치는 tx방향으로 가려함 -> 플레이어는 -tx방향으로 힘을 받음
                     let leverForce = -vTan * friction * LEVER_POWER;
                     
                     player.vx += tx * leverForce;
                     player.vy += ty * leverForce;
                 }
 
-                // 구속 조건 (Constraint) - 망치 자루 길이 유지
                 let dx = player.x - hammer.x;
                 let dy = player.y - hammer.y;
                 let dist = Math.sqrt(dx*dx + dy*dy);
@@ -398,7 +413,6 @@
                      player.x += fixX;
                      player.y += fixY;
                      
-                     // 위치 보정분을 속도에도 반영하여 관성 유지
                      player.vx += fixX * 0.2; 
                      player.vy += fixY * 0.2;
                 }
@@ -428,7 +442,6 @@
                     let ty = bodyCol.nx;
                     let vDotT = player.vx * tx + player.vy * ty;
                     
-                    // 몸체 마찰 (구르기)
                     player.vx -= vDotT * tx * mat.friction * 0.1;
                     player.vy -= vDotT * ty * mat.friction * 0.1;
                 }
@@ -526,6 +539,33 @@
             ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(-10, -30, 8, 60);
             ctx.restore();
             ctx.restore();
+            
+            // 조준점 (Aim Guide) 그리기 (전체 화면 편의성)
+            // 카메라 변환을 다시 되돌린 후 UI 레이어처럼 그릴 수도 있지만,
+            // 게임 월드 내에서 플레이어와 마우스 사이의 선을 긋는 것이 더 직관적임.
+            ctx.restore(); // 카메라 변환 종료 (화면 좌표계로 복귀)
+
+            // 조준 가이드라인 (플레이어 -> 마우스)
+            let screenPx = player.x - cameraX;
+            let screenPy = player.y - cameraY;
+            
+            ctx.beginPath();
+            ctx.moveTo(screenPx, screenPy);
+            ctx.lineTo(mouseX, mouseY);
+            ctx.strokeStyle = "rgba(255, 0, 0, 0.3)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // 조준점 (마우스 위치)
+            ctx.beginPath();
+            ctx.arc(mouseX, mouseY, 10, 0, Math.PI * 2);
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = "rgba(255, 0, 0, 0.2)";
+            ctx.fill();
 
             requestAnimationFrame(loop);
         }
